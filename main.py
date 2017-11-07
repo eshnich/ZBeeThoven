@@ -49,7 +49,8 @@ def RNN(x, weights, biases):
 	# we only want the last output
 	return tf.matmul(outputs[-1], weights['out']) + biases['out']
 
-pred = tf.nn.softmax(RNN(x, weights, biases))
+pred = RNN(x, weights, biases)
+probs = tf.nn.softmax(pred)
 
 # Loss and optimizer
 cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=y))
