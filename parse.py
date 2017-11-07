@@ -32,4 +32,4 @@ def parse_music(file_name, num_voices=1, show=False):
         
     return
 
-print(parse_music(test_midi, show=False))
+# print(parse_music(test_midi, show=False))
