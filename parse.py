@@ -44,9 +44,9 @@ def parse_music(file_name, num_voices=1, show=False):
         
     return
 
-vec_to_num, num_to_vec = build_dataset(parse_music(test_midi))
-print(vec_to_num)
-print(num_to_vec)
+# vec_to_num, num_to_vec = build_dataset(parse_music(test_midi))
+# print(vec_to_num)
+# print(num_to_vec)
 
 
 
