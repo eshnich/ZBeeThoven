@@ -4,7 +4,6 @@ from tensorflow.contrib import rnn
 import music21 as m21
 import parse
 import random
-#from IPython import embed
 
 test_midi = 'http://kern.ccarh.org/cgi-bin/ksdata?l=cc/bach/cello&file=bwv1007-01.krn&f=xml'
 
@@ -38,7 +37,7 @@ n_input = 8
 vocab_size = 8
 
 batch_size = 1
-sample_length = 5
+sample_length = 7
 vec_size = 8
 out_size = 8
 
@@ -47,11 +46,14 @@ stream = m21.stream.Stream()
 final_music = [('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 2), ('D4', 1), ('D4', 1), ('D4', 2), ('E4', 1), ('G4', 1), ('G4', 2), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('D4', 1), ('D4', 1), ('E4', 1), ('D4', 1), ('C4', 4), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 2), ('D4', 1), ('D4', 1), ('D4', 2), ('E4', 1), ('G4', 1), ('G4', 2), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('D4', 1), ('D4', 1), ('E4', 1), ('D4', 1), ('C4', 4), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 2), ('D4', 1), ('D4', 1), ('D4', 2), ('E4', 1), ('G4', 1), ('G4', 2), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('D4', 1), ('D4', 1), ('E4', 1), ('D4', 1), ('C4', 4)]
 
 #model input and output
-x = tf.placeholder("float", [batch_size,sample_length,vec_size])
+#x = tf.placeholder("float", [batch_size,sample_length,vec_size])
+x = tf.placeholder("float", [batch_size,None,vec_size])
 y = tf.placeholder("float", [batch_size,sample_length,out_size]) #one-hot vector
 
 lstm_size = 256
 lstm = tf.contrib.rnn.BasicLSTMCell(lstm_size,state_is_tuple=False)
+
+#Initializing THE LSTM --------------------
 
 outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x, dtype=tf.float32)
 
@@ -68,7 +70,6 @@ loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=log
 optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
 
 
-# Initializing the variables
 
 
 # train_seq = [3,2,1,2,3,3,3,3,2,2,2,2,3,5,5,5,3,2,1,2,3,3,3,3,2,2,3,2,1,1,1,1]
@@ -76,27 +77,12 @@ train_seq = [4, 2, 0, 2, 4, 4, 5, 2, 2, 3, 4, 6, 7, 4, 2, 0, 2, 4, 4, 4, 4, 2, 2
 print('Training sequence: {}'.format(train_seq))
 print('Training sequence converted: {}'.format([num_to_vec[train_seq[i]] for i in range(len(train_seq))]))
 
-# start_val = tf.placeholder(tf.float32) #pick some note to start with
-# current = make_feature_vec(start_val)
-# print(current)
-# current = tf.reshape(current, [1,1,vec_size])
-# state = lstm.zero_state(1,dtype=tf.float32)
-# seq = [start_val]
-# for i in range(20):
-#     print(i)
-#     output, state = tf.nn.dynamic_rnn(cell=lstm,inputs = current,initial_state=state,dtype=tf.float32)
-#     output = tf.reshape(output,[1,lstm_size])
-#     out_logits = tf.matmul(output,W)+b
-#     index = tf.argmax(out_logits, 1)
 
-#     seq.append(index)
-#     current = tf.reshape(make_feature_vec(index), [1,1,vec_size])
-#     print(current)
+#TESTING THE LSTM -----------------------
 
 start_vec = tf.placeholder(tf.float32,[1,1,vec_size])
-state = tf.placeholder(tf.float32,[1,lstm_size])
-output, new_state = tf.nn.dynamic_rnn(cell=lstm,inputs = start_vec,initial_state=state,dtype=tf.float32)
-print("hello")
+in_state = tf.placeholder(tf.float32,[1,2*lstm_size])
+output, new_state = tf.nn.dynamic_rnn(cell=lstm,inputs = start_vec,initial_state=in_state,dtype=tf.float32)
 output = tf.reshape(output,[1,lstm_size])
 out_logits = tf.matmul(output,W)+b
 
@@ -114,6 +100,7 @@ with tf.Session() as session:
     step = 0
     offset = 0
 
+    #Training
     for epoch_id in range(num_epochs):
         x_data = []
         y_data = []
@@ -126,20 +113,23 @@ with tf.Session() as session:
         x_data = np.array(x_data)
         y_data = np.array(y_data)
 
-        _, _loss, = session.run([optimizer,loss], feed_dict = {x:x_data,y:y_data})
-        print("Loss for epoch %d = %f" % (epoch_id,_loss))
+        _, _loss, _state= session.run([optimizer,loss,state], feed_dict = {x:x_data,y:y_data})
+        print("Loss for epoch %d = %f" % (epoch_id,_loss)) #use this if we wanna generate a plot of loss vs. epoch
     print("Done Training")
 
-    print("ASDF")
-    state=None
-    start_vec = make_feature_vec(0)
-    seq = [0]
+    #MUSIC GENERATION
+    
+    new_state_gen = np.zeros([1,2*lstm_size])
+    seq = [6] #the initial sequence we feed the LSTM
+    if len(seq) > 1:
+        x_init = np.reshape([make_feature_vec(i) for i in seq[:-1]],[1,len(seq)-1,vec_size])
+        new_state_gen = session.run(state,feed_dict = {x:x_init})
+    start = np.reshape(make_feature_vec(seq[-1]),[1,1,vec_size])
     for i in range(20):
-        out_logits, new_state = session.run([out_logits,new_state], feed_dict={start_vec:start_vec,state:state})
-        index = int(tf.argmax(out_logits, 1).eval())
+        new_out_logits, new_state_gen = session.run([out_logits,new_state], feed_dict={start_vec:start,in_state:new_state_gen})
+        index = int(tf.argmax(new_out_logits, 1).eval())
         seq.append(index)
-        start_vec = tf.reshape(make_feature_vec(index),[1,1,vec_size])
-    print(seq)
+        start = np.reshape(make_feature_vec(index),[1,1,vec_size])
 
     current = seq
     print('Final: {}'.format(current))
