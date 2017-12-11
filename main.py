@@ -19,7 +19,7 @@ print('Num to Vector: {}'.format(num_to_vec))
 
 # Parameters
 learning_rate = 0.001
-training_iters = 2000
+training_iters = 200
 display_step = 1000
 n_input = 8
 vocab_size = 8
@@ -142,9 +142,11 @@ with tf.Session() as session:
     print('Final: {}'.format(current))
     current_converted = [num_to_vec[current[i]] for i in range(len(current))]
     print('Final converted: {}'.format(current_converted))
-
+    print("adding")
     for note in current_converted:
+        
         stream.append(m21.note.Note(note[0], type=duration(note[1])))
+    print("note")
     stream.show()
 
 
