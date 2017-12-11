@@ -23,7 +23,7 @@ if irish:
 else:
     for fn in os.listdir('beethoven_midis/'):
         if fn[-4:] == '.mid':
-            t_data, d_data = parse.parse_music('beethoven_midis/{}'.format(fn))
+            t_data, d_data = parse.parse_music('beethoven_midis/{}'.format(fn), irish=False)
             train_data.extend(t_data)
             dictionary_data.extend(d_data)
 print('Finished loading data')

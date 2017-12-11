@@ -16,7 +16,7 @@ def build_dataset(notes):
     reverse_dictionary = dict(zip(dictionary.values(), dictionary.keys()))
     return dictionary, reverse_dictionary
 
-def parse_music(file_name, voices=1, show=False, transpose_to_c=False):
+def parse_music(file_name, irish=True, show=False, transpose_to_c=False):
     # returns an array of (note, duration) elements
     #   - note is a string (ex. 'A4')
     #   - duration is a float representing number of quarter notes (ex. 0.25)
@@ -25,7 +25,7 @@ def parse_music(file_name, voices=1, show=False, transpose_to_c=False):
     if show:
         piece.show()
 
-    if voices == 1:
+    if irish:
         data = []
         for note in piece.flat.elements:
             try:
