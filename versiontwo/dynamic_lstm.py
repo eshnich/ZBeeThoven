@@ -7,18 +7,29 @@ import random
 import matplotlib.pyplot as plt
 import os
 
+test_midi = 'http://kern.ccarh.org/cgi-bin/ksdata?l=cc/bach/cello&file=bwv1007-01.krn&f=xml'
 train_data = []
 dictionary_data = []
+switch = True
+irish = True
 
 # # add the midis to our data
 print('Loading data')
-for fn in os.listdir('Connolly_MusicMID/'):
-    data = parse.parse_music('Connolly_MusicMID/{}'.format(fn))
-    train_data.append(data)
-    dictionary_data.extend(data)
+if irish:
+    for fn in os.listdir('Connolly_MusicMID/'):
+        data = parse.parse_music('Connolly_MusicMID/{}'.format(fn))
+        train_data.append(data)
+        dictionary_data.extend(data)
+else:
+    for fn in os.listdir('beethoven_midis/'):
+        if fn[-4:] == '.mid':
+            t_data, d_data = parse.parse_music('beethoven_midis/{}'.format(fn))
+            train_data.extend(t_data)
+            dictionary_data.extend(d_data)
 print('Finished loading data')
 
 # hash which converts (note, duration) pairs to indices and vice versa
+print('Building vec_to_num and num_to_vec')
 vec_to_num,num_to_vec = parse.build_dataset(dictionary_data)
 
 # vec_size is basically the length of the input vectors, and out_size is the length of the output vectors
@@ -60,25 +71,33 @@ stream = m21.stream.Stream()
 #model input and output
 #x = tf.placeholder("float", [batch_size,sample_length,vec_size])
 x = tf.placeholder("float", [batch_size,None,vec_size])
-y = tf.placeholder("float", [batch_size,sample_length,out_size]) #one-hot vector
+y = tf.placeholder("float", [batch_size,None,out_size]) #one-hot vector
 
 lstm_size = 128
 
 # Initializing THE LSTM --------------------
 
-W = {'out':tf.Variable(tf.random_normal([lstm_size, out_size]))}
-b = {'out':tf.Variable(tf.zeros([out_size]))}
-
-def RNN(x,W,b):
+if switch:
     lstm = tf.contrib.rnn.BasicLSTMCell(lstm_size,state_is_tuple=False)
     outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x, dtype=tf.float32)
-    print("outputs",outputs)
-    outputs = tf.reshape(outputs,[batch_size*sample_length,lstm_size])
-    return tf.matmul(outputs,W['out']+b['out'])
+    W = tf.Variable(tf.random_normal([lstm_size, out_size]))
+    b = tf.Variable(tf.zeros([out_size]))
+    outputs = tf.reshape(outputs,[-1,lstm_size])
+    logits = tf.matmul(outputs,W)+b
+    logits = tf.reshape(logits,[batch_size,-1,out_size])
+else:
+    W = {'out':tf.Variable(tf.random_normal([lstm_size, out_size]))}
+    b = {'out':tf.Variable(tf.zeros([out_size]))}
+    def RNN(x,W,b):
+        lstm = tf.contrib.rnn.BasicLSTMCell(lstm_size,state_is_tuple=False)
+        outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x, dtype=tf.float32)
+        print("outputs",outputs)
+        outputs = tf.reshape(outputs,[batch_size*sample_length,lstm_size])
+        return tf.matmul(outputs,W['out']+b['out'])
+    logits = RNN(x,W,b)
+    logits = tf.reshape(logits,[batch_size,sample_length,out_size])
 
-
-logits = RNN(x,W,b)
-logits = tf.reshape(logits,[batch_size,sample_length,out_size])
+# outputs = tf.reshape(outputs,[-1,lstm_size])
 loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=logits))
 tf.summary.scalar('Loss',loss)
 optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
@@ -92,13 +111,12 @@ for voice in train_data:
 
 
 # TESTING THE LSTM -----------------------
-'''
-start_vec = tf.placeholder(tf.float32,[1,1,vec_size])
-in_state = tf.placeholder(tf.float32,[1,2*lstm_size])
-output, new_state = tf.nn.dynamic_rnn(cell=lstm,inputs = start_vec,initial_state=in_state,dtype=tf.float32)
-output = tf.reshape(output,[1,lstm_size])
-out_logits = tf.matmul(output,W)+b
-'''
+if switch:
+    start_vec = tf.placeholder(tf.float32,[1, 1, vec_size])
+    in_state = tf.placeholder(tf.float32,[1, 2 * lstm_size])
+    output, new_state = tf.nn.dynamic_rnn(cell=lstm,inputs = start_vec,initial_state=in_state,dtype=tf.float32)
+    output = tf.reshape(output,[1,lstm_size])
+    out_logits = tf.matmul(output,W) + b
 
 def get_random_track():
     # chooses a random track in train_seq
@@ -111,10 +129,12 @@ merged = tf.summary.merge_all()
 init = tf.global_variables_initializer()
 
 with tf.Session() as session:
+
     session.run(init)
     writer = tf.summary.FileWriter("output",session.graph)
 
     #Training
+    print('Starting Training')
     iterations = []
     losses = []
     for epoch_id in range(num_epochs):
@@ -137,16 +157,29 @@ with tf.Session() as session:
         writer.add_summary(_merged,epoch_id)
     print("Done Training")
 
-    seq = train_seq[-8][0:sample_length]
-    for i in range(100):
-        x_init = np.reshape([make_feature_vec(i) for i in seq[-sample_length:]],[1,sample_length,vec_size])
-        pred_logits = session.run(logits,feed_dict={x:x_init})
-        dist = sftmax(pred_logits[0][-1])
-
-        index = np.random.choice(len(dist),p=dist)
-
-        seq.append(index)
-        # print("NEW SEQ",seq)
+    seq = train_seq[-4][0:sample_length]
+    if not switch:
+        for i in range(100):
+            x_init = np.reshape([make_feature_vec(i) for i in seq[-sample_length:]],[1,sample_length,vec_size])
+            pred_logits = session.run(logits,feed_dict={x:x_init})
+            dist = sftmax(pred_logits[0][-1])
+            index =np.random.choice(len(dist),p=dist)
+            seq.append(index)
+            print("NEW SEQ",seq)
+    else:
+        new_state_gen = np.zeros([1,2*lstm_size])
+        x_init = np.reshape([make_feature_vec(i) for i in seq],[1,len(seq),vec_size])
+        if len(seq) > 1:
+            x_init = np.reshape([make_feature_vec(i) for i in seq[:-1]],[1,len(seq)-1,vec_size])
+            new_state_gen = session.run(state,feed_dict = {x:x_init})
+        start = np.reshape(make_feature_vec(seq[-1]),[1,1,vec_size])
+        for i in range(100):
+            new_out_logits, new_state_gen = session.run([out_logits,new_state], feed_dict={start_vec:start,in_state:new_state_gen})
+            dist = sftmax(new_out_logits[0])
+            index =np.random.choice(len(dist),p=dist)
+            seq.append(index)
+            start = np.reshape(make_feature_vec(index),[1,1,vec_size])
+            print("NEW SWITCH", seq)
 
     current = seq
     print('Final: {}'.format(current))

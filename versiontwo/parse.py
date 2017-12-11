@@ -16,7 +16,7 @@ def build_dataset(notes):
     reverse_dictionary = dict(zip(dictionary.values(), dictionary.keys()))
     return dictionary, reverse_dictionary
 
-def parse_music(file_name, voices=1, show=False):
+def parse_music(file_name, voices=1, show=False, transpose_to_c=False):
     # returns an array of (note, duration) elements
     #   - note is a string (ex. 'A4')
     #   - duration is a float representing number of quarter notes (ex. 0.25)
@@ -34,7 +34,35 @@ def parse_music(file_name, voices=1, show=False):
                 pass
         return data
 
-    return
+    test_data = []
+    dictionary_data = []
+
+    metadata = piece[0]
+    stream = piece[1]
+    instrument = stream[0]
+    measures = stream[1:]
+    for voice in stream.voices:
+        if transpose_to_c:
+            key_sigs = voice.getKeySignatures()
+            if(len(key_sigs)!=1):
+                continue
+            interval = m21.interval.Interval(key_sigs[0].tonic,m21.pitch.Pitch('C'))
+            voice = voice.transpose(interval)
+        line = []
+        for note in voice.notes.stream():
+            if include_beat:
+                try:
+                    line.append((note.nameWithOctave, note.duration.quarterLength, note.beat))
+                except:
+                    pass
+            else:
+                try:
+                    line.append((note.nameWithOctave, note.duration.quarterLength))
+                except:
+                    pass
+        test_data.append(line)
+        dictionary_data.extend(line)
+    return test_data, dictionary_data
 
     # metadata = piece[0]
     # print('metadata: {}'.format(metadata))
@@ -53,6 +81,7 @@ def parse_music(file_name, voices=1, show=False):
     # print('test data: {}'.format(test_data))
     # print('dictionary data: {}'.format(dictionary_data))
     # return test_data, dictionary_data
+
 
 # vec_to_num, num_to_vec = build_dataset(parse_music(test_midi))
 # print(vec_to_num)
