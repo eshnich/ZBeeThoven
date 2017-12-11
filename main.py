@@ -53,23 +53,29 @@ biases = {
     'out': tf.Variable(tf.random_normal([vocab_size]))
 }
 
+print('Weights: {}'.format(weights))
+print('Biases: {}'.format(biases))
+
 def RNN(x, weights, biases):
 
     # reshape to [1, n_input]
+    # print('x: {}'.format(x))
     x = tf.reshape(x, [-1, n_input])
+    # print('x after tf.reshape: {}'.format(x))
 
     # Generate a n_input-element sequence of inputs
     # (eg. [had] [a] [general] -> [20] [6] [33])
     x = tf.split(x,n_input,1)
+    # print('x after tf.split: {}'.format(x))
 
     # 2-layer LSTM, each layer has n_hidden units.
     # Average Accuracy= 95.20% at 50k iter
-    #rnn_cell = rnn.MultiRNNCell([rnn.BasicLSTMCell(n_hidden),rnn.BasicLSTMCell(n_hidden)])
+    rnn_cell = rnn.MultiRNNCell([rnn.BasicLSTMCell(n_hidden),rnn.BasicLSTMCell(n_hidden)])
 
     # 1-layer LSTM with n_hidden units but with lower accuracy.
     # Average Accuracy= 90.60% 50k iter
     # Uncomment line below to test but comment out the 2-layer rnn.MultiRNNCell above
-    rnn_cell = rnn.BasicLSTMCell(n_hidden)
+    # rnn_cell = rnn.BasicLSTMCell(n_hidden)
 
     # generate prediction
     outputs, states = rnn.static_rnn(rnn_cell, x, dtype=tf.float32)
@@ -99,7 +105,7 @@ print('Training sequence converted: {}'.format([num_to_vec[train_seq[i]] for i i
 
 with tf.Session() as session:
     session.run(init)
-    step = 0
+    step = 0 
     offset = 0
     while step < training_iters:
         if step % 50 == 0:
@@ -107,9 +113,13 @@ with tf.Session() as session:
         offset = offset % len(train_seq)-n_input
         x_in = [train_seq[i] for i in range(offset,offset+n_input)]
         x_in = np.reshape(np.array(x_in), [-1, n_input, 1])
+        print('It\'s happening! with step: {}'.format(step))
         symbols_out_onehot = np.zeros([vocab_size], dtype=float)
+        print(symbols_out_onehot)
         symbols_out_onehot[train_seq[offset+n_input]] = 1.0
+        print(symbols_out_onehot)
         symbols_out_onehot = np.reshape(symbols_out_onehot,[1,-1])
+        print(symbols_out_onehot)
         _, acc, loss, onehot_pred = session.run([optimizer, accuracy, cost, pred], \
                     feed_dict={x: x_in, y: symbols_out_onehot})
 
