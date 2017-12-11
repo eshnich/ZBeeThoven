@@ -50,8 +50,6 @@ def parse_music(file_name, show=False,transpose_to_c=False):
         dictionary_data.extend(data)
     return test_data, dictionary_data
 
-def transpose_and_parse(file_name,show=False):
-    piece = m21.converter.parse(file_name)
 
 # vec_to_num, num_to_vec = build_dataset(parse_music(test_midi))
 # print(vec_to_num)
