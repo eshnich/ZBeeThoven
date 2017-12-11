@@ -8,7 +8,7 @@ import random
 test_midi = 'http://kern.ccarh.org/cgi-bin/ksdata?l=cc/bach/cello&file=bwv1007-01.krn&f=xml'
 data = []
 
-#data+=parse.parse_music('beethoven_midis/beethoven_opus10_2.mid')
+#add the midis to our data
 
 data+=parse.parse_music('beethoven_midis/beethoven_opus10_2.mid')
 data+=parse.parse_music('beethoven_midis/beethoven_opus10_3.mid')
@@ -18,12 +18,16 @@ data+=parse.parse_music('beethoven_midis/beethoven_opus22_3.mid')
 data+=parse.parse_music('beethoven_midis/beethoven_opus22_4.mid')
 
 vec_to_num,num_to_vec = parse.build_dataset(data)
+#these are basically just a hash which convert (note, duration) pairs to indices and vice versa
+
 vocab_size = len(vec_to_num)
 vec_size = vocab_size
 out_size = vec_size
+#vec_size is basically the length of the input vectors, and out_size is the length of the output vectors. 
+# #incidentally, these are both the size of our vocabulary, so we should probably just get rid of some of these variables.
 
-#vec_to_num = {('C4', 1): 0, ('C4', 4): 1, ('D4', 1): 2, ('D4', 2): 3, ('E4', 1): 4, ('E4', 2): 5, ('G4', 1): 6, ('G4', 2): 7}
-#num_to_vec = dict(zip(vec_to_num.values(), vec_to_num.keys()))
+
+
 print('Vector to Num: {}'.format(vec_to_num))
 print('Num to Vector: {}'.format(num_to_vec))
 
@@ -38,7 +42,8 @@ def duration(num):
         return '16th'
     return 'whole'
 
-def make_feature_vec(point):#replace this with some np.zeros thing.
+#one-hot encodes
+def make_feature_vec(point):
     vec = []
     for i in range(vec_size):
         if i == point:
@@ -46,12 +51,13 @@ def make_feature_vec(point):#replace this with some np.zeros thing.
         else:
             vec.append(0.0)
     return vec
+#replace this with some np.zeros thing, maybe.
 
 # Parameters
 learning_rate = 0.001
 training_iters = 200
 display_step = 1000
-num_epochs = 250 
+num_epochs = 600
 n_input = 8
 #vocab_size = 8
 
@@ -89,20 +95,28 @@ def RNN(x,W,b):
     outputs = tf.reshape(outputs,[batch_size*sample_length,lstm_size])
 
     return tf.matmul(outputs,W['out']+b['out'])
+
+
 logits = RNN(x,W,b)
 
 logits = tf.reshape(logits,[batch_size,sample_length,out_size])
 
 loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=logits))
+
 tf.summary.scalar('Loss',loss)
 
 optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
 
 
 
-
-# train_seq = [3,2,1,2,3,3,3,3,2,2,2,2,3,5,5,5,3,2,1,2,3,3,3,3,2,2,3,2,1,1,1,1]
-train_seq = [4, 2, 0, 2, 4, 4, 5, 2, 2, 3, 4, 6, 7, 4, 2, 0, 2, 4, 4, 4, 4, 2, 2, 4, 2, 1]
+train_seq = []
+count = 0
+for d in data:
+    train_seq+=[vec_to_num[d]]
+    count+=1
+    if(count%100==0):
+        print("count ", count)
+        
 print('Training sequence: {}'.format(train_seq))
 print('Training sequence converted: {}'.format([num_to_vec[train_seq[i]] for i in range(len(train_seq))]))
 
@@ -155,10 +169,9 @@ with tf.Session() as session:
         x_init = np.reshape([make_feature_vec(i) for i in seq[-sample_length:]],[1,sample_length,vec_size])
         pred_logits = session.run(logits,feed_dict={x:x_init})
         dist = sftmax(pred_logits[0][-1])
-#        rando = np.random.multinomial(1,dist)
-#        index = int(tf.argmax(rando).eval())
+
         index =np.random.choice(len(dist),p=dist)
-        #change this to be random.
+
         seq.append(index)
         print("NEW SEQ",seq)
     print(seq)
