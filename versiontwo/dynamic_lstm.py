@@ -4,39 +4,40 @@ from tensorflow.contrib import rnn
 import music21 as m21
 import parse
 import random
+import matplotlib.pyplot as plt
 import os
 
 test_midi = 'http://kern.ccarh.org/cgi-bin/ksdata?l=cc/bach/cello&file=bwv1007-01.krn&f=xml'
-
 train_data = []
 dictionary_data = []
 switch = True
-dataset = 'Connolly_MusicXML/'
+irish = True
 
-# add the midis to our data
-print("creating datasets")
-
-for fn in os.listdir(dataset):
-    if fn[-4:] == '.mid':
-        t_data, d_data = parse.parse_music(dataset + fn)
-        train_data.extend(t_data)
-        dictionary_data.extend(d_data)
-        print("i")
-    # print(train_data)
-    # print(dictionary_data)
+# # add the midis to our data
+print('Loading data')
+if irish:
+    for fn in os.listdir('Connolly_MusicMID/'):
+        data = parse.parse_music('Connolly_MusicMID/{}'.format(fn))
+        train_data.append(data)
+        dictionary_data.extend(data)
+else:
+    for fn in os.listdir('beethoven_midis/'):
+        if fn[-4:] == '.mid':
+            t_data, d_data = parse.parse_music('beethoven_midis/{}'.format(fn), irish=False)
+            train_data.extend(t_data)
+            dictionary_data.extend(d_data)
+print('Finished loading data')
 
 # hash which converts (note, duration) pairs to indices and vice versa
-print("vectonum")
+print('Building vec_to_num and num_to_vec')
 vec_to_num,num_to_vec = parse.build_dataset(dictionary_data)
-print('Vector to Num: {}'.format(vec_to_num))
-print('Num to Vector: {}'.format(num_to_vec))
-
 
 # vec_size is basically the length of the input vectors, and out_size is the length of the output vectors
 vocab_size = len(vec_to_num)
 vec_size = vocab_size
 out_size = vec_size
 
+# duration in number to words
 def duration(num):
     if num == 1:
         return 'quarter'
@@ -56,32 +57,25 @@ def make_feature_vec(point):
 
 # parameters
 learning_rate = 0.001
-training_iters = 200
-display_step = 1000
-num_epochs = 100
-n_input = 8
-#vocab_size = 8
-
+num_epochs = 50000
+sample_length = 48
 batch_size = 1
-sample_length = 64
-#vec_size = 8
-#out_size = 8
 
 def sftmax(z):
     ez = np.exp(z-np.max(z))
     return ez/ez.sum()
+
 # convert to music
 stream = m21.stream.Stream()
-final_music = [('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 2), ('D4', 1), ('D4', 1), ('D4', 2), ('E4', 1), ('G4', 1), ('G4', 2), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('D4', 1), ('D4', 1), ('E4', 1), ('D4', 1), ('C4', 4), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 2), ('D4', 1), ('D4', 1), ('D4', 2), ('E4', 1), ('G4', 1), ('G4', 2), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('D4', 1), ('D4', 1), ('E4', 1), ('D4', 1), ('C4', 4), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 2), ('D4', 1), ('D4', 1), ('D4', 2), ('E4', 1), ('G4', 1), ('G4', 2), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('D4', 1), ('D4', 1), ('E4', 1), ('D4', 1), ('C4', 4)]
 
 #model input and output
 #x = tf.placeholder("float", [batch_size,sample_length,vec_size])
 x = tf.placeholder("float", [batch_size,None,vec_size])
 y = tf.placeholder("float", [batch_size,None,out_size]) #one-hot vector
 
-lstm_size = 256
+lstm_size = 128
 
-#Initializing THE LSTM --------------------
+# Initializing THE LSTM --------------------
 
 if switch:
     lstm = tf.contrib.rnn.BasicLSTMCell(lstm_size,state_is_tuple=False)
@@ -91,9 +85,7 @@ if switch:
     outputs = tf.reshape(outputs,[-1,lstm_size])
     logits = tf.matmul(outputs,W)+b
     logits = tf.reshape(logits,[batch_size,-1,out_size])
-
 else:
-
     W = {'out':tf.Variable(tf.random_normal([lstm_size, out_size]))}
     b = {'out':tf.Variable(tf.zeros([out_size]))}
     def RNN(x,W,b):
@@ -105,42 +97,26 @@ else:
     logits = RNN(x,W,b)
     logits = tf.reshape(logits,[batch_size,sample_length,out_size])
 
-
 # outputs = tf.reshape(outputs,[-1,lstm_size])
 loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=logits))
 tf.summary.scalar('Loss',loss)
 optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
 
-
 train_seq = []
-count = 0
-
-# valid_seq = [make_feature_vec(vec_to_num[d]) for d in valid_data]
-# x_valid = np.array([valid_seq[:-1]])
-# y_valid = np.array([valid_seq[1:]])
-
 for voice in train_data:
     voice_track = []
     for v in voice:
         voice_track += [vec_to_num[v]]
-    print('length: {}'.format(len(voice_track)))
     train_seq.append(voice_track)
 
 
-
-        
-# print('Training sequence: {}'.format(train_seq))
-# print('Training sequence converted: {}'.format([num_to_vec[train_seq[i]] for i in range(len(train_seq))]))
-
-
-#TESTING THE LSTM -----------------------
+# TESTING THE LSTM -----------------------
 if switch:
-    start_vec = tf.placeholder(tf.float32,[1,1,vec_size])
-    in_state = tf.placeholder(tf.float32,[1,2*lstm_size])
+    start_vec = tf.placeholder(tf.float32,[1, 1, vec_size])
+    in_state = tf.placeholder(tf.float32,[1, 2 * lstm_size])
     output, new_state = tf.nn.dynamic_rnn(cell=lstm,inputs = start_vec,initial_state=in_state,dtype=tf.float32)
     output = tf.reshape(output,[1,lstm_size])
-    out_logits = tf.matmul(output,W)+b
-
+    out_logits = tf.matmul(output,W) + b
 
 def get_random_track():
     # chooses a random track in train_seq
@@ -158,11 +134,12 @@ with tf.Session() as session:
     writer = tf.summary.FileWriter("output",session.graph)
 
     #Training
+    print('Starting Training')
+    iterations = []
+    losses = []
     for epoch_id in range(num_epochs):
         data = get_random_track()
         length = len(data)
-        if length < sample_length + 10:
-            continue
 
         seed = random.randint(0, length - sample_length - 1)
         x_data = []
@@ -172,14 +149,13 @@ with tf.Session() as session:
         x_data = np.array(x_data)
         y_data = np.array(y_data)
 
-
         _merged,_, _loss = session.run([merged,optimizer,loss], feed_dict = {x: x_data, y: y_data})
         if(epoch_id % 100 == 0):
-            print("Loss for epoch %d = %f" % (epoch_id,_loss)) #use this if we wanna generate a plot of loss vs. epoch
+            print("Loss for epoch %d: %f" % (epoch_id, _loss)) #use this if we wanna generate a plot of loss vs. epoch
+            iterations.append(epoch_id)
+            losses.append(_loss)
         writer.add_summary(_merged,epoch_id)
     print("Done Training")
-
-
 
     seq = train_seq[-4][0:sample_length]
     if not switch:
@@ -205,17 +181,19 @@ with tf.Session() as session:
             start = np.reshape(make_feature_vec(index),[1,1,vec_size])
             print("NEW SWITCH", seq)
 
-
     current = seq
     print('Final: {}'.format(current))
     current_converted = [num_to_vec[current[i]] for i in range(len(current))]
     print('Final converted: {}'.format(current_converted))
-    print("adding")
     for note in current_converted:
-        
         stream.append(m21.note.Note(note[0], type=duration(note[1])))
-    print("note")
     stream.show()
+
+    plt.plot(iterations, losses, c='green')
+    plt.title('Evolution of SGD Training Loss using LSTM')
+    plt.xlabel('Iterations')
+    plt.ylabel('Cross Entropy Loss')
+    plt.show()
 
 '''
 
