@@ -16,22 +16,33 @@ def build_dataset(notes):
     reverse_dictionary = dict(zip(dictionary.values(), dictionary.keys()))
     return dictionary, reverse_dictionary
 
-def parse_music(file_name, irish=True, show=False, transpose_to_c=False):
+def parse_music(file_name, irish=True, show=False, transpose_to_c=False,include_beat=False):
     # returns an array of (note, duration) elements
     #   - note is a string (ex. 'A4')
     #   - duration is a float representing number of quarter notes (ex. 0.25)
     piece = m21.converter.parse(file_name)
-    include_beat = False
     if show:
         piece.show()
 
     if irish:
         data = []
+        if transpose_to_c:
+            key_sigs = piece.getKeySignatures()
+            if(len(key_sigs)!=1):
+                return data
+            interval = m21.interval.Interval(key_sigs[0].tonic,m21.pitch.Pitch('C'))
+            piece = piece.transpose(interval)
         for note in piece.flat.elements:
-            try:
-                data.append((note.nameWithOctave, note.duration.quarterLength))
-            except:
-                pass
+            if include_beat:
+                try:
+                    data.append((note.nameWithOctave, note.duration.quarterLength,note.beat))
+                except:
+                    pass
+            else:
+                try:
+                    data.append((note.nameWithOctave, note.duration.quarterLength))
+                except:
+                    pass
         return data
 
     test_data = []

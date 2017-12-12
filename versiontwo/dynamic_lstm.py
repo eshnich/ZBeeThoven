@@ -16,6 +16,7 @@ irish = True
 peephole = False
 dropout = False
 dropoutkeepprob =0.5
+beat = False
 
 
 # # add the midis to our data
@@ -23,6 +24,7 @@ print('Loading data')
 if irish:
     for fn in os.listdir('Connolly_MusicMID/'):
         data = parse.parse_music('Connolly_MusicMID/{}'.format(fn))
+        print('Loading ',fn)
         train_data.append(data)
         dictionary_data.extend(data)
 else:
@@ -80,7 +82,7 @@ def get_a_cell(n_hidden):
     return cell
 
 if switch:
-    lstm = tf.contrib.rnn.MultiRNNCell([get_a_cell(lstm_size) for i in range(num_layers)],state_is_tuple=True)
+    lstm = tf.contrib.rnn.MultiRNNCell([get_a_cell(lstm_size) for i in range(num_layers)],state_is_tuple=True,use_peepholes=peephole)
     outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x,dtype=tf.float32)
     W = tf.Variable(tf.random_normal([lstm_size, out_size]))
     b = tf.Variable(tf.zeros([out_size]))
@@ -91,13 +93,13 @@ else:
     W = {'out':tf.Variable(tf.random_normal([lstm_size, out_size]))}
     b = {'out':tf.Variable(tf.zeros([out_size]))}
     def RNN(x,W,b):
-        lstm = tf.contrib.rnn.LSTMCell(lstm_size,state_is_tuple=False,use_peepholes=peephole)
+        lstm = tf.contrib.rnn.MultiRNNCell([get_a_cell(lstm_size) for i in range(num_layers)],state_is_tuple=True,use_peepholes=peephole)
         outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x, dtype=tf.float32)
-        print("outputs",outputs)
-        outputs = tf.reshape(outputs,[batch_size*sample_length,lstm_size])
-        return tf.matmul(outputs,W['out']+b['out'])
+        #print("outputs",outputs)
+        outputs = tf.reshape(outputs,[-1,lstm_size])
+        return tf.matmul(outputs,W['out'])+b['out']
     logits = RNN(x,W,b)
-    logits = tf.reshape(logits,[batch_size,sample_length,out_size])
+    logits = tf.reshape(logits,[batch_size,-1,out_size])
 
 # outputs = tf.reshape(outputs,[-1,lstm_size])
 softmax = tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=logits)
@@ -155,6 +157,8 @@ with tf.Session() as session:
             training = train_seq
         iterations = []
         losses = []
+        valid_iterations = []
+        valid_losses = []
         for epoch_id in range(num_epochs):
             data = get_random_track(training)
             #print(data)
@@ -171,10 +175,23 @@ with tf.Session() as session:
 
             _merged,_, _loss = session.run([merged,optimizer, loss], feed_dict = {x: x_data, y: y_data})
             
+            averaged_training_loss = _loss/sample_length
+            iterations.append(epoch_id)
+            losses.append(adjusted_loss)
             if(epoch_id % 100 == 0):
                 print("Loss for epoch %d: %f" % (epoch_id, _loss)) #use this if we wanna generate a plot of loss vs. epoch
-                iterations.append(epoch_id)
-                losses.append(_loss)
+                if validate:
+                    cur_valid_loss = []
+                    for data in validation:
+                        x_valid = np.array([data[:-1]])
+                        y_valid = np.array([data[1:]])
+                        next_loss = session.run(loss,feed_dict = {x:x_valid,y:y_valid})
+                        cur_valid_loss.append(next_loss/y_valid.shape[1])
+                    averaged_valid_loss = sum(valid_loss)/len(valid_loss)
+                    print("Valuation loss for epoch %d: %f" % (epoch_id, averaged_valid_loss))
+                    valid_iterations.append(epoch_id)
+                    valid_losses.append(averaged_valid_loss)
+
             writer.add_summary(_merged,epoch_id)
 
         if validate:
@@ -237,6 +254,7 @@ with tf.Session() as session:
         stream.show()
 
     plt.plot(iterations, losses, c='green')
+    plt.plot(iterations, losses, c='red')
     plt.title('Evolution of SGD Training Loss using LSTM')
     plt.xlabel('Iterations')
     plt.ylabel('Cross Entropy Loss')
