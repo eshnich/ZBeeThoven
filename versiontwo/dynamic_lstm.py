@@ -6,12 +6,13 @@ import parse
 import random
 import matplotlib.pyplot as plt
 import os
+from sklearn.model_selection import KFold
 
 test_midi = 'http://kern.ccarh.org/cgi-bin/ksdata?l=cc/bach/cello&file=bwv1007-01.krn&f=xml'
 train_data = []
 dictionary_data = []
 switch = True
-irish = False
+irish = True
 
 # # add the midis to our data
 print('Loading data')
@@ -37,17 +38,6 @@ vocab_size = len(vec_to_num)
 vec_size = vocab_size
 out_size = vec_size
 
-# duration in number to words
-def duration(num):
-    if num == 1:
-        return 'quarter'
-    elif num == 2:
-        return 'half'
-    elif num == 0.5:
-        return 'eighth'
-    elif num == 0.25:
-        return '16th'
-    return 'whole'
 
 # one-hot encodes
 def make_feature_vec(point):
@@ -98,7 +88,8 @@ else:
     logits = tf.reshape(logits,[batch_size,sample_length,out_size])
 
 # outputs = tf.reshape(outputs,[-1,lstm_size])
-loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=logits))
+softmax = tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=logits)
+loss = tf.reduce_sum(softmax)
 tf.summary.scalar('Loss',loss)
 optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
 
@@ -118,126 +109,112 @@ if switch:
     output = tf.reshape(output,[1,lstm_size])
     out_logits = tf.matmul(output,W) + b
 
-def get_random_track():
+def get_random_track(t):
     # chooses a random track in train_seq
-    n = len(train_seq)
+    n = len(t)
     while True:
         seed = random.randint(0, n - 1)
-        voice_track = train_seq[seed]
+        voice_track = t[seed]
         if len(voice_track) > sample_length:
             return [make_feature_vec(voice_track[i]) for i in range(len(voice_track))]
 
 merged = tf.summary.merge_all() 
 init = tf.global_variables_initializer()
 
-with tf.Session() as session:
+validate = True
+kfold_k = 5
 
-    session.run(init)
-    writer = tf.summary.FileWriter("output",session.graph)
+with tf.Session() as session:
 
     #Training
     print('Starting Training')
-    iterations = []
-    losses = []
-    for epoch_id in range(num_epochs):
-        data = get_random_track()
-        length = len(data)
-        #print(length)
-        #print([len(i) for i in train_seq])
-        seed = random.randint(0, length - sample_length - 1)
-        x_data = []
-        y_data = []
-        x_data.append(data[seed : seed + sample_length])
-        y_data.append(data[seed + 1 : seed + 1 + sample_length])
-        x_data = np.array(x_data)
-        y_data = np.array(y_data)
+    kf = KFold(n_splits=kfold_k,shuffle=True)
+    valid_loss_all = []
+    for train_index, valid_index in kf.split(train_seq):
+        session.run(init)
+        writer = tf.summary.FileWriter("output",session.graph)
+        training = [train_seq[i] for i in train_index]
+        validation = [[make_feature_vec(j) for j in train_seq[i]] for i in valid_index]
+        iterations = []
+        losses = []
+        for epoch_id in range(num_epochs):
+            data = get_random_track(training)
+            #print(data)
+            length = len(data)
+            #print(length)
+            #print([len(i) for i in train_seq])
+            seed = random.randint(0, length - sample_length - 1)
+            x_data = []
+            y_data = []
+            x_data.append(data[seed : seed + sample_length])
+            y_data.append(data[seed + 1 : seed + 1 + sample_length])
+            x_data = np.array(x_data)
+            y_data = np.array(y_data)
 
-        _merged,_, _loss = session.run([merged,optimizer,loss], feed_dict = {x: x_data, y: y_data})
-        if(epoch_id % 100 == 0):
-            print("Loss for epoch %d: %f" % (epoch_id, _loss)) #use this if we wanna generate a plot of loss vs. epoch
-            iterations.append(epoch_id)
-            losses.append(_loss)
-        writer.add_summary(_merged,epoch_id)
-    print("Done Training")
-
-    seq = train_seq[-4][-sample_length:]
-    #seq = [0]
-    if not switch:
-        for i in range(100):
-            x_init = np.reshape([make_feature_vec(i) for i in seq[-sample_length:]],[1,sample_length,vec_size])
-            pred_logits = session.run(logits,feed_dict={x:x_init})
-            dist = sftmax(pred_logits[0][-1])
-            index =np.random.choice(len(dist),p=dist)
-            seq.append(index)
-            print("NEW SEQ",seq)
-    else:
-        new_state_gen = np.zeros([1,2*lstm_size])
-        x_init = np.reshape([make_feature_vec(i) for i in seq],[1,len(seq),vec_size])
-        if len(seq) > 1:
-            x_init = np.reshape([make_feature_vec(i) for i in seq[:-1]],[1,len(seq)-1,vec_size])
-            new_state_gen = session.run(state,feed_dict = {x:x_init})
-        start = np.reshape(make_feature_vec(seq[-1]),[1,1,vec_size])
-        for i in range(100):
-            new_out_logits, new_state_gen = session.run([out_logits,new_state], feed_dict={start_vec:start,in_state:new_state_gen})
-            dist = sftmax(new_out_logits[0])
+            _merged,_, _loss = session.run([merged,optimizer, loss], feed_dict = {x: x_data, y: y_data})
             
-            print(sorted(dist,reverse=True)[:5])
-            index =np.random.choice(len(dist),p=dist)
-            #index = int(tf.argmax(new_out_logits, 1).eval())
-            #print(dist[index])
-            seq.append(index)
-            start = np.reshape(make_feature_vec(index),[1,1,vec_size])
-            #print("NEW SWITCH", seq)
+            if(epoch_id % 100 == 0):
+                print("Loss for epoch %d: %f" % (epoch_id, _loss)) #use this if we wanna generate a plot of loss vs. epoch
+                iterations.append(epoch_id)
+                losses.append(_loss)
+            writer.add_summary(_merged,epoch_id)
 
-    current = seq
-    print('Final: {}'.format(current))
-    current_converted = [num_to_vec[current[i]] for i in range(len(current))]
-    print('Final converted: {}'.format(current_converted))
-    for note in current_converted:
-        n = m21.note.Note(note[0])
-        n.duration = m21.duration.Duration(note[1])
-        stream.append(n)
-        #stream.append(m21.note.Note(note[0], type=duration(note[1])))
-    stream.show()
+        if validate:
+            valid_loss = []
+            for data in validation:
+                #data = [make_feature_vec(i) for i in piece]
+                x_valid = np.array([data[:-1]])
+                y_valid = np.array([data[1:]])
+                next_loss = session.run(loss,feed_dict={x:x_valid,y: y_valid})
+                valid_loss.append(next_loss/y_valid.shape[1])
+            valid_loss_all.append(sum(valid_loss)/len(valid_loss))
+    print("Done Training")
+    print("K-fold CV loss = {}".format(sum(valid_loss_all)/len(valid_loss_all)))
+
+    generate_sample = False
+    if generate_sample:
+        seq = train_seq[-4][:sample_length]
+        #seq = [0]
+        if not switch:
+            for i in range(100):
+                x_init = np.reshape([make_feature_vec(i) for i in seq[-sample_length:]],[1,sample_length,vec_size])
+                pred_logits = session.run(logits,feed_dict={x:x_init})
+                dist = sftmax(pred_logits[0][-1])
+                index =np.random.choice(len(dist),p=dist)
+                seq.append(index)
+                print("NEW SEQ",seq)
+        else:
+            new_state_gen = np.zeros([1,2*lstm_size])
+            x_init = np.reshape([make_feature_vec(i) for i in seq],[1,len(seq),vec_size])
+            if len(seq) > 1:
+                x_init = np.reshape([make_feature_vec(i) for i in seq[:-1]],[1,len(seq)-1,vec_size])
+                new_state_gen = session.run(state,feed_dict = {x:x_init})
+            start = np.reshape(make_feature_vec(seq[-1]),[1,1,vec_size])
+            for i in range(100):
+                new_out_logits, new_state_gen = session.run([out_logits,new_state], feed_dict={start_vec:start,in_state:new_state_gen})
+                dist = sftmax(new_out_logits[0])
+                
+                print(sorted(dist,reverse=True)[:5])
+                index =np.random.choice(len(dist),p=dist)
+                #index = int(tf.argmax(new_out_logits, 1).eval())
+                #print(dist[index])
+                seq.append(index)
+                start = np.reshape(make_feature_vec(index),[1,1,vec_size])
+                #print("NEW SWITCH", seq)
+
+        current = seq
+        print('Final: {}'.format(current))
+        current_converted = [num_to_vec[current[i]] for i in range(len(current))]
+        print('Final converted: {}'.format(current_converted))
+        for note in current_converted:
+            n = m21.note.Note(note[0])
+            n.duration = m21.duration.Duration(note[1])
+            stream.append(n)
+            #stream.append(m21.note.Note(note[0], type=duration(note[1])))
+        stream.show()
 
     plt.plot(iterations, losses, c='green')
     plt.title('Evolution of SGD Training Loss using LSTM')
     plt.xlabel('Iterations')
     plt.ylabel('Cross Entropy Loss')
     plt.show()
-
-'''
-
-    
-
-    #MUSIC GENERATION
-    
-#    new_state_gen = np.zeros([1,2*lstm_size])
-    seq = [6] #the initial sequence we feed the LSTM
-    x_init = np.reshape([make_feature_vec(i) for i in seq],[1,len(seq),vec_size])
-    if len(seq) > 1:
-#        x_init = np.reshape([make_feature_vec(i) for i in seq[:-1]],[1,len(seq)-1,vec_size])
-#        new_state_gen = session.run(state,feed_dict = {x:x_init})
-        pass
-
-    start = np.reshape(make_feature_vec(seq[-1]),[1,1,vec_size])
-    for i in range(20):
-#        new_out_logits, new_state_gen = session.run([out_logits,new_state], feed_dict={start_vec:start,in_state:new_state_gen})
-        new_logits = session.run([logits],feed_dict={x:x_init})
-
-        index = int(tf.argmax(new_out_logits, 1).eval())
-        #change this to be random
-        seq.append(index)
-        start = np.reshape(make_feature_vec(index),[1,1,vec_size])
-
-    current = seq
-    print('Final: {}'.format(current))
-    current_converted = [num_to_vec[current[i]] for i in range(len(current))]
-    print('Final converted: {}'.format(current_converted))
-    print("adding")
-    for note in current_converted:
-        
-        stream.append(m21.note.Note(note[0], type=duration(note[1])))
-    print("note")
-    stream.show()
-'''
