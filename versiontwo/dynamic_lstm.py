@@ -54,6 +54,8 @@ learning_rate = 0.001
 num_epochs = 1000
 sample_length = 48
 batch_size = 1
+num_layers = 2
+lstm_size = 128
 
 def sftmax(z):
     ez = np.exp(z-np.max(z))
@@ -67,15 +69,19 @@ stream = m21.stream.Stream()
 x = tf.placeholder("float", [batch_size,None,vec_size])
 y = tf.placeholder("float", [batch_size,None,out_size]) #one-hot vector
 
-lstm_size = 128
+
 
 # Initializing THE LSTM --------------------
 
-if switch:
-    lstm = tf.contrib.rnn.LSTMCell(lstm_size,state_is_tuple=False, use_peepholes=peephole)
+def get_a_cell(n_hidden):
+    cell = tf.contrib.rnn.LSTMCell(n_hidden, state_is_tuple=True,use_peepholes=peephole)
     if dropout:
-        lstm = tf.contrib.rnn.DropoutWrapper(lstm, output_keep_prob=dropoutkeeprob)
-    outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x, dtype=tf.float32)
+        cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=dropoutkeeprob)
+    return cell
+
+if switch:
+    lstm = tf.contrib.rnn.MultiRNNCell([get_a_cell(lstm_size) for i in range(num_layers)],state_is_tuple=True)
+    outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x,dtype=tf.float32)
     W = tf.Variable(tf.random_normal([lstm_size, out_size]))
     b = tf.Variable(tf.zeros([out_size]))
     outputs = tf.reshape(outputs,[-1,lstm_size])
@@ -110,8 +116,11 @@ for voice in train_data:
 # TESTING THE LSTM -----------------------
 if switch:
     start_vec = tf.placeholder(tf.float32,[1, 1, vec_size])
-    in_state = tf.placeholder(tf.float32,[1, 2 * lstm_size])
-    output, new_state = tf.nn.dynamic_rnn(cell=lstm,inputs = start_vec,initial_state=in_state,dtype=tf.float32)
+    #in_state = tf.tuple([tf.placeholder(tf.float32,[1, 2 * lstm_size]),tf.placeholder(tf.float32,[1, 2 * lstm_size])])
+    state_placeholder = tf.placeholder(tf.float32, [num_layers, 2, batch_size, lstm_size])
+    l = tf.unstack(state_placeholder, axis=0)
+    rnn_tuple_state = tuple([tf.nn.rnn_cell.LSTMStateTuple(l[idx][0],l[idx][1])for idx in range(num_layers)])
+    output, new_state = tf.nn.dynamic_rnn(cell=lstm,inputs = start_vec,initial_state=rnn_tuple_state,dtype=tf.float32)
     output = tf.reshape(output,[1,lstm_size])
     out_logits = tf.matmul(output,W) + b
 
@@ -127,8 +136,8 @@ def get_random_track(t):
 merged = tf.summary.merge_all() 
 init = tf.global_variables_initializer()
 
-validate = True
-kfold_k = 5
+validate = False
+kfold_k = 2
 
 with tf.Session() as session:
 
@@ -139,8 +148,11 @@ with tf.Session() as session:
     for train_index, valid_index in kf.split(train_seq):
         session.run(init)
         writer = tf.summary.FileWriter("output",session.graph)
-        training = [train_seq[i] for i in train_index]
-        validation = [[make_feature_vec(j) for j in train_seq[i]] for i in valid_index]
+        if validate:
+            training = [train_seq[i] for i in train_index]
+            validation = [[make_feature_vec(j) for j in train_seq[i]] for i in valid_index]
+        else:
+            training = train_seq
         iterations = []
         losses = []
         for epoch_id in range(num_epochs):
@@ -174,10 +186,13 @@ with tf.Session() as session:
                 next_loss = session.run(loss,feed_dict={x:x_valid,y: y_valid})
                 valid_loss.append(next_loss/y_valid.shape[1])
             valid_loss_all.append(sum(valid_loss)/len(valid_loss))
+        else:
+            break
     print("Done Training")
-    print("K-fold CV loss = {}".format(sum(valid_loss_all)/len(valid_loss_all)))
+    if validate:
+        print("K-fold CV loss = {}".format(sum(valid_loss_all)/len(valid_loss_all)))
 
-    generate_sample = False
+    generate_sample = True
     if generate_sample:
         seq = train_seq[-4][:sample_length]
         #seq = [0]
@@ -190,14 +205,16 @@ with tf.Session() as session:
                 seq.append(index)
                 print("NEW SEQ",seq)
         else:
-            new_state_gen = np.zeros([1,2*lstm_size])
+            #new_state_gen = np.zeros([1,2*lstm_size])
+            new_state_gen = np.zeros((num_layers, 2, batch_size, lstm_size))
             x_init = np.reshape([make_feature_vec(i) for i in seq],[1,len(seq),vec_size])
             if len(seq) > 1:
                 x_init = np.reshape([make_feature_vec(i) for i in seq[:-1]],[1,len(seq)-1,vec_size])
                 new_state_gen = session.run(state,feed_dict = {x:x_init})
             start = np.reshape(make_feature_vec(seq[-1]),[1,1,vec_size])
             for i in range(100):
-                new_out_logits, new_state_gen = session.run([out_logits,new_state], feed_dict={start_vec:start,in_state:new_state_gen})
+                new_out_logits, new_state_gen = session.run([out_logits,new_state], feed_dict={start_vec:start,state_placeholder:new_state_gen})
+
                 dist = sftmax(new_out_logits[0])
                 
                 print(sorted(dist,reverse=True)[:5])
