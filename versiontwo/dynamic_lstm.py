@@ -11,13 +11,14 @@ test_midi = 'http://kern.ccarh.org/cgi-bin/ksdata?l=cc/bach/cello&file=bwv1007-0
 train_data = []
 dictionary_data = []
 switch = True
+dataset = 'Connolly_MusicXML/'
 
 # add the midis to our data
 print("creating datasets")
 
-for fn in os.listdir('beethoven_midis/'):
+for fn in os.listdir(dataset):
     if fn[-4:] == '.mid':
-        t_data, d_data = parse.parse_music('beethoven_midis/{}'.format(fn))
+        t_data, d_data = parse.parse_music(dataset + fn)
         train_data.extend(t_data)
         dictionary_data.extend(d_data)
         print("i")
@@ -57,7 +58,7 @@ def make_feature_vec(point):
 learning_rate = 0.001
 training_iters = 200
 display_step = 1000
-num_epochs = 10000
+num_epochs = 100
 n_input = 8
 #vocab_size = 8
 
