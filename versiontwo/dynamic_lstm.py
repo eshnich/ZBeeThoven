@@ -13,6 +13,10 @@ train_data = []
 dictionary_data = []
 switch = True
 irish = True
+peephole = False
+dropout = False
+dropoutkeepprob =0.5
+
 
 # # add the midis to our data
 print('Loading data')
@@ -68,7 +72,9 @@ lstm_size = 128
 # Initializing THE LSTM --------------------
 
 if switch:
-    lstm = tf.contrib.rnn.BasicLSTMCell(lstm_size,state_is_tuple=False)
+    lstm = tf.contrib.rnn.LSTMCell(lstm_size,state_is_tuple=False, use_peepholes=peephole)
+    if dropout:
+        lstm = tf.contrib.rnn.DropoutWrapper(lstm, output_keep_prob=dropoutkeeprob)
     outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x, dtype=tf.float32)
     W = tf.Variable(tf.random_normal([lstm_size, out_size]))
     b = tf.Variable(tf.zeros([out_size]))
@@ -79,7 +85,7 @@ else:
     W = {'out':tf.Variable(tf.random_normal([lstm_size, out_size]))}
     b = {'out':tf.Variable(tf.zeros([out_size]))}
     def RNN(x,W,b):
-        lstm = tf.contrib.rnn.BasicLSTMCell(lstm_size,state_is_tuple=False)
+        lstm = tf.contrib.rnn.LSTMCell(lstm_size,state_is_tuple=False,use_peepholes=peephole)
         outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x, dtype=tf.float32)
         print("outputs",outputs)
         outputs = tf.reshape(outputs,[batch_size*sample_length,lstm_size])
