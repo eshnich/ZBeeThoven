@@ -8,29 +8,37 @@ import matplotlib.pyplot as plt
 import os
 from sklearn.model_selection import KFold
 
-test_midi = 'http://kern.ccarh.org/cgi-bin/ksdata?l=cc/bach/cello&file=bwv1007-01.krn&f=xml'
 train_data = []
 dictionary_data = []
+
 switch = False
 irish = True
 peephole = False
 dropout = False
 dropoutkeepprob =0.5
 beat = False
+transposetoc = False
+# parameters
+learning_rate = 0.001
+num_epochs = 1000
+sample_length = 48
+batch_size = 1
+num_layers = 2
+lstm_size = 128
 
 
 # # add the midis to our data
 print('Loading data')
 if irish:
     for fn in os.listdir('Connolly_MusicMID/'):
-        data = parse.parse_music('Connolly_MusicMID/{}'.format(fn))
+        data = parse.parse_music('Connolly_MusicMID/{}'.format(fn),transpose_to_c = transposetoc, include_beat=beat)
         print('Loading ',fn)
         train_data.append(data)
         dictionary_data.extend(data)
 else:
     for fn in os.listdir('beethoven_midis/'):
         if fn[-4:] == '.mid':
-            t_data, d_data = parse.parse_music('beethoven_midis/{}'.format(fn), irish=False)
+            t_data, d_data = parse.parse_music('beethoven_midis/{}'.format(fn), irish=False, transpose_to_c = transposetoc, include_beat = beat)
             train_data.extend(t_data)
             dictionary_data.extend(d_data)
 print('Finished loading data')
@@ -51,13 +59,7 @@ def make_feature_vec(point):
     vec[point] = 1.0
     return vec
 
-# parameters
-learning_rate = 0.001
-num_epochs = 1000
-sample_length = 48
-batch_size = 1
-num_layers = 2
-lstm_size = 128
+
 
 def sftmax(z):
     ez = np.exp(z-np.max(z))
@@ -131,6 +133,7 @@ def get_random_track(t):
     n = len(t)
     while True:
         seed = random.randint(0, n - 1)
+        print(seed)
         voice_track = t[seed]
         if len(voice_track) > sample_length:
             return [make_feature_vec(voice_track[i]) for i in range(len(voice_track))]
@@ -149,6 +152,7 @@ with tf.Session() as session:
     valid_loss_all = []
     for train_index, valid_index in kf.split(train_seq):
         session.run(init)
+        print("initialized")
         writer = tf.summary.FileWriter("output",session.graph)
         if validate:
             training = [train_seq[i] for i in train_index]
@@ -160,6 +164,7 @@ with tf.Session() as session:
         valid_iterations = []
         valid_losses = []
         for epoch_id in range(num_epochs):
+            print("epoch",epoch_id)
             data = get_random_track(training)
             #print(data)
             length = len(data)
@@ -172,6 +177,7 @@ with tf.Session() as session:
             y_data.append(data[seed + 1 : seed + 1 + sample_length])
             x_data = np.array(x_data)
             y_data = np.array(y_data)
+            print("help?")
 
             _merged,_, _loss = session.run([merged,optimizer, loss], feed_dict = {x: x_data, y: y_data})
             
