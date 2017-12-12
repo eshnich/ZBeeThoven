@@ -82,7 +82,7 @@ def get_a_cell(n_hidden):
     return cell
 
 if switch:
-    lstm = tf.contrib.rnn.MultiRNNCell([get_a_cell(lstm_size) for i in range(num_layers)],state_is_tuple=True,use_peepholes=peephole)
+    lstm = tf.contrib.rnn.MultiRNNCell([get_a_cell(lstm_size) for i in range(num_layers)],state_is_tuple=True)
     outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x,dtype=tf.float32)
     W = tf.Variable(tf.random_normal([lstm_size, out_size]))
     b = tf.Variable(tf.zeros([out_size]))
@@ -93,7 +93,7 @@ else:
     W = {'out':tf.Variable(tf.random_normal([lstm_size, out_size]))}
     b = {'out':tf.Variable(tf.zeros([out_size]))}
     def RNN(x,W,b):
-        lstm = tf.contrib.rnn.MultiRNNCell([get_a_cell(lstm_size) for i in range(num_layers)],state_is_tuple=True,use_peepholes=peephole)
+        lstm = tf.contrib.rnn.MultiRNNCell([get_a_cell(lstm_size) for i in range(num_layers)],state_is_tuple=True)
         outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x, dtype=tf.float32)
         #print("outputs",outputs)
         outputs = tf.reshape(outputs,[-1,lstm_size])
