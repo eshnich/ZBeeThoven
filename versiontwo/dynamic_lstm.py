@@ -11,7 +11,7 @@ test_midi = 'http://kern.ccarh.org/cgi-bin/ksdata?l=cc/bach/cello&file=bwv1007-0
 train_data = []
 dictionary_data = []
 switch = True
-irish = True
+irish = False
 
 # # add the midis to our data
 print('Loading data')
@@ -57,7 +57,7 @@ def make_feature_vec(point):
 
 # parameters
 learning_rate = 0.001
-num_epochs = 50000
+num_epochs = 1000
 sample_length = 48
 batch_size = 1
 
@@ -121,9 +121,11 @@ if switch:
 def get_random_track():
     # chooses a random track in train_seq
     n = len(train_seq)
-    seed = random.randint(0, n - 1)
-    voice_track = train_seq[seed]
-    return [make_feature_vec(voice_track[i]) for i in range(len(voice_track))]
+    while True:
+        seed = random.randint(0, n - 1)
+        voice_track = train_seq[seed]
+        if len(voice_track) > sample_length:
+            return [make_feature_vec(voice_track[i]) for i in range(len(voice_track))]
 
 merged = tf.summary.merge_all() 
 init = tf.global_variables_initializer()
@@ -140,7 +142,8 @@ with tf.Session() as session:
     for epoch_id in range(num_epochs):
         data = get_random_track()
         length = len(data)
-
+        #print(length)
+        #print([len(i) for i in train_seq])
         seed = random.randint(0, length - sample_length - 1)
         x_data = []
         y_data = []
@@ -157,7 +160,8 @@ with tf.Session() as session:
         writer.add_summary(_merged,epoch_id)
     print("Done Training")
 
-    seq = train_seq[-4][0:sample_length]
+    seq = train_seq[-4][-sample_length:]
+    #seq = [0]
     if not switch:
         for i in range(100):
             x_init = np.reshape([make_feature_vec(i) for i in seq[-sample_length:]],[1,sample_length,vec_size])
@@ -176,17 +180,24 @@ with tf.Session() as session:
         for i in range(100):
             new_out_logits, new_state_gen = session.run([out_logits,new_state], feed_dict={start_vec:start,in_state:new_state_gen})
             dist = sftmax(new_out_logits[0])
+            
+            print(sorted(dist,reverse=True)[:5])
             index =np.random.choice(len(dist),p=dist)
+            #index = int(tf.argmax(new_out_logits, 1).eval())
+            #print(dist[index])
             seq.append(index)
             start = np.reshape(make_feature_vec(index),[1,1,vec_size])
-            print("NEW SWITCH", seq)
+            #print("NEW SWITCH", seq)
 
     current = seq
     print('Final: {}'.format(current))
     current_converted = [num_to_vec[current[i]] for i in range(len(current))]
     print('Final converted: {}'.format(current_converted))
     for note in current_converted:
-        stream.append(m21.note.Note(note[0], type=duration(note[1])))
+        n = m21.note.Note(note[0])
+        n.duration = m21.duration.Duration(note[1])
+        stream.append(n)
+        #stream.append(m21.note.Note(note[0], type=duration(note[1])))
     stream.show()
 
     plt.plot(iterations, losses, c='green')

@@ -21,7 +21,7 @@ def parse_music(file_name, irish=True, show=False, transpose_to_c=False):
     #   - note is a string (ex. 'A4')
     #   - duration is a float representing number of quarter notes (ex. 0.25)
     piece = m21.converter.parse(file_name)
-
+    include_beat = False
     if show:
         piece.show()
 
