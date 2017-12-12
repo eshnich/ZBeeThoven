@@ -19,7 +19,7 @@ dropoutkeepprob =0.5
 beat = False
 transposetoc = False
 # parameters
-learning_rate = 0.001
+learning_rate = 0.01
 num_epochs = 1000
 sample_length = 48
 batch_size = 1
@@ -28,11 +28,16 @@ lstm_size = 128
 
 
 # # add the midis to our data
+count = 0
 print('Loading data')
 if irish:
     for fn in os.listdir('Connolly_MusicMID/'):
+        if count>=10000:
+            break
+        count+=1
         data = parse.parse_music('Connolly_MusicMID/{}'.format(fn),transpose_to_c = transposetoc, include_beat=beat)
         print('Loading ',fn)
+        if(data==None): continue
         train_data.append(data)
         dictionary_data.extend(data)
 else:
@@ -80,7 +85,7 @@ y = tf.placeholder("float", [batch_size,None,out_size]) #one-hot vector
 def get_a_cell(n_hidden):
     cell = tf.contrib.rnn.LSTMCell(n_hidden, state_is_tuple=True,use_peepholes=peephole)
     if dropout:
-        cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=dropoutkeeprob)
+        cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=dropoutkeepprob)
     return cell
 
 if switch:
@@ -107,7 +112,7 @@ else:
 softmax = tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=logits)
 loss = tf.reduce_sum(softmax)
 tf.summary.scalar('Loss',loss)
-optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
+optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
 train_seq = []
 for voice in train_data:
@@ -133,7 +138,7 @@ def get_random_track(t):
     n = len(t)
     while True:
         seed = random.randint(0, n - 1)
-        print(seed)
+        #print(seed)
         voice_track = t[seed]
         if len(voice_track) > sample_length:
             return [make_feature_vec(voice_track[i]) for i in range(len(voice_track))]
@@ -152,7 +157,7 @@ with tf.Session() as session:
     valid_loss_all = []
     for train_index, valid_index in kf.split(train_seq):
         session.run(init)
-        print("initialized")
+        #print("initialized")
         writer = tf.summary.FileWriter("output",session.graph)
         if validate:
             training = [train_seq[i] for i in train_index]
@@ -164,7 +169,10 @@ with tf.Session() as session:
         valid_iterations = []
         valid_losses = []
         for epoch_id in range(num_epochs):
-            print("epoch",epoch_id)
+            #print("epoch",epoch_id)
+            #for t in training:
+            #    print(sample_length)
+            #    print(len(t))
             data = get_random_track(training)
             #print(data)
             length = len(data)
@@ -177,7 +185,7 @@ with tf.Session() as session:
             y_data.append(data[seed + 1 : seed + 1 + sample_length])
             x_data = np.array(x_data)
             y_data = np.array(y_data)
-            print("help?")
+            #print("help?")
 
             _merged,_, _loss = session.run([merged,optimizer, loss], feed_dict = {x: x_data, y: y_data})
             
@@ -188,7 +196,9 @@ with tf.Session() as session:
                 print("Loss for epoch %d: %f" % (epoch_id, averaged_training_loss)) #use this if we wanna generate a plot of loss vs. epoch
                 if validate:
                     cur_valid_loss = []
+                    #print(epoch_id,"validation",len(validation))
                     for data in validation:
+                        #print(epoch_id,"data",len(data))
                         x_valid = np.array([data[:-1]])
                         y_valid = np.array([data[1:]])
                         next_loss = session.run(loss,feed_dict = {x:x_valid,y:y_valid})

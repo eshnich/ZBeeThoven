@@ -27,9 +27,9 @@ def parse_music(file_name, irish=True, show=False, transpose_to_c=False,include_
     if irish:
         data = []
         if transpose_to_c:
-            key_sigs = piece.getKeySignatures()
-            if(len(key_sigs)!=1):
-                return data
+            key_sigs = piece[0].getKeySignatures()
+            if(len(set(key_sigs))!=1):
+                return None
             interval = m21.interval.Interval(key_sigs[0].tonic,m21.pitch.Pitch('C'))
             piece = piece.transpose(interval)
         for note in piece.flat.elements:
