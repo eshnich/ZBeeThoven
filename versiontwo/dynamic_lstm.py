@@ -11,7 +11,7 @@ from sklearn.model_selection import KFold
 test_midi = 'http://kern.ccarh.org/cgi-bin/ksdata?l=cc/bach/cello&file=bwv1007-01.krn&f=xml'
 train_data = []
 dictionary_data = []
-switch = True
+switch = False
 irish = True
 peephole = False
 dropout = False
@@ -138,7 +138,7 @@ def get_random_track(t):
 merged = tf.summary.merge_all() 
 init = tf.global_variables_initializer()
 
-validate = False
+validate = True
 kfold_k = 2
 
 with tf.Session() as session:
@@ -177,9 +177,9 @@ with tf.Session() as session:
             
             averaged_training_loss = _loss/sample_length
             iterations.append(epoch_id)
-            losses.append(adjusted_loss)
+            losses.append(averaged_training_loss)
             if(epoch_id % 100 == 0):
-                print("Loss for epoch %d: %f" % (epoch_id, _loss)) #use this if we wanna generate a plot of loss vs. epoch
+                print("Loss for epoch %d: %f" % (epoch_id, averaged_training_loss)) #use this if we wanna generate a plot of loss vs. epoch
                 if validate:
                     cur_valid_loss = []
                     for data in validation:
@@ -187,7 +187,7 @@ with tf.Session() as session:
                         y_valid = np.array([data[1:]])
                         next_loss = session.run(loss,feed_dict = {x:x_valid,y:y_valid})
                         cur_valid_loss.append(next_loss/y_valid.shape[1])
-                    averaged_valid_loss = sum(valid_loss)/len(valid_loss)
+                    averaged_valid_loss = sum(cur_valid_loss)/len(cur_valid_loss)
                     print("Valuation loss for epoch %d: %f" % (epoch_id, averaged_valid_loss))
                     valid_iterations.append(epoch_id)
                     valid_losses.append(averaged_valid_loss)
@@ -254,7 +254,7 @@ with tf.Session() as session:
         stream.show()
 
     plt.plot(iterations, losses, c='green')
-    plt.plot(iterations, losses, c='red')
+    plt.plot(valid_iterations, valid_losses, c='red')
     plt.title('Evolution of SGD Training Loss using LSTM')
     plt.xlabel('Iterations')
     plt.ylabel('Cross Entropy Loss')
