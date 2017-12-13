@@ -4,140 +4,281 @@ from tensorflow.contrib import rnn
 import music21 as m21
 import parse
 import random
+import matplotlib.pyplot as plt
+import os
+from sklearn.model_selection import KFold
 
-test_midi = 'http://kern.ccarh.org/cgi-bin/ksdata?l=cc/bach/cello&file=bwv1007-01.krn&f=xml'
+# ---------- PARAMETERS ----------
+switch = False
+irish = True
 
-vec_to_num = {('C4', 1): 0, ('C4', 4): 1, ('D4', 1): 2, ('D4', 2): 3, ('E4', 1): 4, ('E4', 2): 5, ('G4', 1): 6, ('G4', 2): 7}
-num_to_vec = dict(zip(vec_to_num.values(), vec_to_num.keys()))
-print('Vector to Num: {}'.format(vec_to_num))
-print('Num to Vector: {}'.format(num_to_vec))
+# network architecture
+peephole = False
+dropout = False
+dropoutkeepprob =0.5
+num_layers = 2
 
-def duration(num):
-    if num == 1:
-        return 'quarter'
-    elif num == 2:
-        return 'half'
-    return 'whole'
+# hyperparameters
+learning_rate = 0.01
+sample_length = 48
+lstm_size = 128
 
+# data
+beat = False
+transposetoc = False
+
+# training
+num_epochs = 1000
+batch_size = 1
+
+# validation
+validate = True
+kfold_k = 2
+
+
+# ---------- LOADING DATA ----------
+print('Loading data')
+
+train_data = []
+dictionary_data = []
+
+count = 0
+if irish:
+    for fn in os.listdir('Connolly_MusicMID/'):
+        if count >= 10000:
+            break
+        count += 1
+        data = parse.parse_music('Connolly_MusicMID/{}'.format(fn),transpose_to_c=transposetoc, include_beat=beat)
+        if data == None:
+            continue
+        train_data.append(data)
+        dictionary_data.extend(data)
+else:
+    for fn in os.listdir('beethoven_midis/'):
+        if fn[-4:] == '.mid':
+            t_data, d_data = parse.parse_music('beethoven_midis/{}'.format(fn), irish=False, transpose_to_c=transposetoc, include_beat=beat)
+            train_data.extend(t_data)
+            dictionary_data.extend(d_data)
+print('Finished loading data')
+
+print('Building vec_to_num and num_to_vec')
+
+# hash which converts (note, duration) pairs to indices and vice versa
+vec_to_num,num_to_vec = parse.build_dataset(dictionary_data)
+
+# vec_size is basically the length of the input vectors, and out_size is the length of the output vectors
+vocab_size = len(vec_to_num)
+vec_size = vocab_size
+out_size = vec_size
+print('Finished building dictionaries')
+
+
+# ---------- HELPER FUNCTIONS ----------
 def make_feature_vec(point):
-    vec = []
-    for i in range(vec_size):
-        if i == point:
-            vec.append(1.0)
-        else:
-            vec.append(0.0)
+    vec = np.zeros(vec_size)
+    vec[point] = 1.0
     return vec
 
-# Parameters
-learning_rate = 0.001
-training_iters = 200
-display_step = 1000
-num_epochs = 100
-n_input = 8
-vocab_size = 8
+def sftmax(z):
+    ez = np.exp(z-np.max(z))
+    return ez/ez.sum()
 
-batch_size = 1
-sample_length = 7
-vec_size = 8
-out_size = 8
+def get_a_cell(n_hidden):
+    cell = tf.contrib.rnn.LSTMCell(n_hidden, state_is_tuple=True,use_peepholes=peephole)
+    if dropout:
+        cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=dropoutkeepprob)
+    return cell
+
+def get_random_track(t):
+    # chooses a random track in train_seq
+    n = len(t)
+    while True:
+        seed = random.randint(0, n - 1)
+        #print(seed)
+        voice_track = t[seed]
+        if len(voice_track) > sample_length:
+            return [make_feature_vec(voice_track[i]) for i in range(len(voice_track))]
 
 # convert to music
 stream = m21.stream.Stream()
-final_music = [('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 2), ('D4', 1), ('D4', 1), ('D4', 2), ('E4', 1), ('G4', 1), ('G4', 2), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('D4', 1), ('D4', 1), ('E4', 1), ('D4', 1), ('C4', 4), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 2), ('D4', 1), ('D4', 1), ('D4', 2), ('E4', 1), ('G4', 1), ('G4', 2), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('D4', 1), ('D4', 1), ('E4', 1), ('D4', 1), ('C4', 4), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 2), ('D4', 1), ('D4', 1), ('D4', 2), ('E4', 1), ('G4', 1), ('G4', 2), ('E4', 1), ('D4', 1), ('C4', 1), ('D4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('E4', 1), ('D4', 1), ('D4', 1), ('E4', 1), ('D4', 1), ('C4', 4)]
 
 #model input and output
-#x = tf.placeholder("float", [batch_size,sample_length,vec_size])
 x = tf.placeholder("float", [batch_size,None,vec_size])
-y = tf.placeholder("float", [batch_size,sample_length,out_size]) #one-hot vector
-
-lstm_size = 256
-lstm = tf.contrib.rnn.BasicLSTMCell(lstm_size,state_is_tuple=False)
-
-#Initializing THE LSTM --------------------
-
-outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x, dtype=tf.float32)
-
-W = tf.Variable(tf.random_normal([lstm_size, out_size]))
-b = tf.Variable(tf.zeros([out_size]))
-
-outputs = tf.reshape(outputs,[batch_size*sample_length,lstm_size])
-logits = tf.matmul(outputs,W)+b
-
-logits = tf.reshape(logits,[batch_size,sample_length,out_size])
-
-loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=logits))
-
-optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(loss)
+y = tf.placeholder("float", [batch_size,None,out_size]) #one-hot vector
 
 
+# ---------- INITIALIZING THE LSTM ----------
+print('Initializing the LSTM')
+
+if switch:
+    lstm = tf.contrib.rnn.MultiRNNCell([get_a_cell(lstm_size) for i in range(num_layers)],state_is_tuple=True)
+    outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x,dtype=tf.float32)
+    W = tf.Variable(tf.random_normal([lstm_size, out_size]))
+    b = tf.Variable(tf.zeros([out_size]))
+    outputs = tf.reshape(outputs,[-1,lstm_size])
+    logits = tf.matmul(outputs,W)+b
+    logits = tf.reshape(logits,[batch_size,-1,out_size])
+else:
+    W = {'out':tf.Variable(tf.random_normal([lstm_size, out_size]))}
+    b = {'out':tf.Variable(tf.zeros([out_size]))}
+    def RNN(x,W,b):
+        lstm = tf.contrib.rnn.MultiRNNCell([get_a_cell(lstm_size) for i in range(num_layers)],state_is_tuple=True)
+        outputs, state = tf.nn.dynamic_rnn(cell=lstm,inputs=x, dtype=tf.float32)
+        outputs = tf.reshape(outputs,[-1,lstm_size])
+        return tf.matmul(outputs,W['out'])+b['out']
+    logits = RNN(x,W,b)
+    logits = tf.reshape(logits,[batch_size,-1,out_size])
+
+softmax = tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=logits)
+loss = tf.reduce_sum(softmax)
+tf.summary.scalar('Loss',loss)
+optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
+
+train_seq = []
+for voice in train_data:
+    voice_track = []
+    for v in voice:
+        voice_track += [vec_to_num[v]]
+    train_seq.append(voice_track)
 
 
-# train_seq = [3,2,1,2,3,3,3,3,2,2,2,2,3,5,5,5,3,2,1,2,3,3,3,3,2,2,3,2,1,1,1,1]
-train_seq = [4, 2, 0, 2, 4, 4, 5, 2, 2, 3, 4, 6, 7, 4, 2, 0, 2, 4, 4, 4, 4, 2, 2, 4, 2, 1]
-print('Training sequence: {}'.format(train_seq))
-print('Training sequence converted: {}'.format([num_to_vec[train_seq[i]] for i in range(len(train_seq))]))
+# ---------- TESTING THE LSTM ----------
+print('Testing the LSTM')
 
+if switch:
+    start_vec = tf.placeholder(tf.float32,[1, 1, vec_size])
+    state_placeholder = tf.placeholder(tf.float32, [num_layers, 2, batch_size, lstm_size])
+    l = tf.unstack(state_placeholder, axis=0)
+    rnn_tuple_state = tuple([tf.nn.rnn_cell.LSTMStateTuple(l[idx][0],l[idx][1])for idx in range(num_layers)])
+    output, new_state = tf.nn.dynamic_rnn(cell=lstm,inputs = start_vec,initial_state=rnn_tuple_state,dtype=tf.float32)
+    output = tf.reshape(output,[1,lstm_size])
+    out_logits = tf.matmul(output,W) + b
 
-#TESTING THE LSTM -----------------------
-
-start_vec = tf.placeholder(tf.float32,[1,1,vec_size])
-in_state = tf.placeholder(tf.float32,[1,2*lstm_size])
-output, new_state = tf.nn.dynamic_rnn(cell=lstm,inputs = start_vec,initial_state=in_state,dtype=tf.float32)
-output = tf.reshape(output,[1,lstm_size])
-out_logits = tf.matmul(output,W)+b
-
-
-def get_data():
-    start = random.randint(0,len(train_seq)-sample_length-1)
-    print(start)
-    return [make_feature_vec(train_seq[i]) for i in range(start,start+sample_length+1)]
-
+merged = tf.summary.merge_all() 
 init = tf.global_variables_initializer()
 
+# ---------- TRAINING ----------
+print('Starting training')
+
 with tf.Session() as session:
-    
-    session.run(init)
-    step = 0
-    offset = 0
+    kf = KFold(n_splits=kfold_k,shuffle=True)
+    valid_loss_all = []
+    for train_index, valid_index in kf.split(train_seq):
+        session.run(init)
+        writer = tf.summary.FileWriter("output",session.graph)
 
-    #Training
-    for epoch_id in range(num_epochs):
-        x_data = []
-        y_data = []
+        if validate:
+            training = [train_seq[i] for i in train_index]
+            validation = [[make_feature_vec(j) for j in train_seq[i]] for i in valid_index]
+        else:
+            training = train_seq
 
-        for i in range(batch_size):
-            data = get_data()
-            x_data.append(data[:-1])
-            y_data.append(data[1:])
+        iterations = []
+        losses = []
+        valid_iterations = []
+        valid_losses = []
 
-        x_data = np.array(x_data)
-        y_data = np.array(y_data)
+        for epoch_id in range(num_epochs):
+            data = get_random_track(training)
+            length = len(data)
+            seed = random.randint(0, length - sample_length - 1)
+            x_data = []
+            y_data = []
+            x_data.append(data[seed : seed + sample_length])
+            y_data.append(data[seed + 1 : seed + 1 + sample_length])
+            x_data = np.array(x_data)
+            y_data = np.array(y_data)
 
-        _, _loss, _state= session.run([optimizer,loss,state], feed_dict = {x:x_data,y:y_data})
-        print("Loss for epoch %d = %f" % (epoch_id,_loss)) #use this if we wanna generate a plot of loss vs. epoch
+            _merged,_, _loss = session.run([merged,optimizer, loss], feed_dict = {x: x_data, y: y_data})
+            
+            averaged_training_loss = _loss/sample_length
+            iterations.append(epoch_id)
+            losses.append(averaged_training_loss)
+
+            if epoch_id % 100 == 0:
+                #use this if we wanna generate a plot of loss vs. epoch
+                print("Loss for epoch %d: %f" % (epoch_id, averaged_training_loss))
+                if validate:
+                    cur_valid_loss = []
+
+                    for data in validation:
+                        x_valid = np.array([data[:-1]])
+                        y_valid = np.array([data[1:]])
+                        next_loss = session.run(loss,feed_dict = {x:x_valid,y:y_valid})
+                        cur_valid_loss.append(next_loss/y_valid.shape[1])
+
+                    averaged_valid_loss = sum(cur_valid_loss)/len(cur_valid_loss)
+
+                    print("Valuation loss for epoch %d: %f" % (epoch_id, averaged_valid_loss))
+
+                    valid_iterations.append(epoch_id)
+                    valid_losses.append(averaged_valid_loss)
+
+            writer.add_summary(_merged,epoch_id)
+
+        if validate:
+            valid_loss = []
+            for data in validation:
+                x_valid = np.array([data[:-1]])
+                y_valid = np.array([data[1:]])
+                next_loss = session.run(loss,feed_dict={x:x_valid,y: y_valid})
+                valid_loss.append(next_loss/y_valid.shape[1])
+            valid_loss_all.append(sum(valid_loss)/len(valid_loss))
+        else:
+            break
+
     print("Done Training")
 
-    #MUSIC GENERATION
-    
-    new_state_gen = np.zeros([1,2*lstm_size])
-    seq = [6] #the initial sequence we feed the LSTM
-    if len(seq) > 1:
-        x_init = np.reshape([make_feature_vec(i) for i in seq[:-1]],[1,len(seq)-1,vec_size])
-        new_state_gen = session.run(state,feed_dict = {x:x_init})
-    start = np.reshape(make_feature_vec(seq[-1]),[1,1,vec_size])
-    for i in range(20):
-        new_out_logits, new_state_gen = session.run([out_logits,new_state], feed_dict={start_vec:start,in_state:new_state_gen})
-        index = int(tf.argmax(new_out_logits, 1).eval())
-        seq.append(index)
-        start = np.reshape(make_feature_vec(index),[1,1,vec_size])
+    if validate:
+        print("K-fold CV loss = {}".format(sum(valid_loss_all)/len(valid_loss_all)))
 
-    current = seq
-    print('Final: {}'.format(current))
-    current_converted = [num_to_vec[current[i]] for i in range(len(current))]
-    print('Final converted: {}'.format(current_converted))
-    print("adding")
-    for note in current_converted:
-        
-        stream.append(m21.note.Note(note[0], type=duration(note[1])))
-    print("note")
-    stream.show()
+# ---------- MUSIC GENERATION ----------
+    print('Generating music')
+    generate_sample = True
+    if generate_sample:
+        seq = train_seq[-4][:sample_length]
+
+        if not switch:
+            for i in range(100):
+                x_init = np.reshape([make_feature_vec(i) for i in seq[-sample_length:]],[1,sample_length,vec_size])
+                pred_logits = session.run(logits,feed_dict={x:x_init})
+                dist = sftmax(pred_logits[0][-1])
+                index =np.random.choice(len(dist),p=dist)
+                seq.append(index)
+        else:
+            new_state_gen = np.zeros((num_layers, 2, batch_size, lstm_size))
+            x_init = np.reshape([make_feature_vec(i) for i in seq],[1,len(seq),vec_size])
+            if len(seq) > 1:
+                x_init = np.reshape([make_feature_vec(i) for i in seq[:-1]],[1,len(seq)-1,vec_size])
+                new_state_gen = session.run(state,feed_dict = {x:x_init})
+            start = np.reshape(make_feature_vec(seq[-1]),[1,1,vec_size])
+            for i in range(100):
+                new_out_logits, new_state_gen = session.run([out_logits,new_state], feed_dict={start_vec:start,state_placeholder:new_state_gen})
+
+                dist = sftmax(new_out_logits[0])
+                
+                print(sorted(dist,reverse=True)[:5])
+                index =np.random.choice(len(dist),p=dist)
+                seq.append(index)
+                start = np.reshape(make_feature_vec(index),[1,1,vec_size])
+
+        current = seq
+        current_converted = [num_to_vec[current[i]] for i in range(len(current))]
+
+        print('Final Sequence: {}'.format(current_converted))
+
+        for note in current_converted:
+            n = m21.note.Note(note[0])
+            n.duration = m21.duration.Duration(note[1])
+            stream.append(n)
+        stream.show()
+
+# ---------- PLOTTING ----------
+    plt.plot(iterations, losses, c='green')
+    plt.plot(valid_iterations, valid_losses, c='red')
+    plt.title('Evolution of SGD Training Loss using LSTM')
+    plt.xlabel('Iterations')
+    plt.ylabel('Cross Entropy Loss')
+    plt.show()
+
+
